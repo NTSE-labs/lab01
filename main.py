@@ -59,19 +59,16 @@ HEADERS = {
 
 
 def normalise_url(url: str) -> str:
-    """Convert protocol-relative and relative URLs to absolute URLs."""
     if url.startswith("//"):
         return f"https:{url}"
     return urljoin("https://yandex.ru", url)
 
 
 def sha256_bytes(data: bytes) -> str:
-    """Return SHA-256 checksum for raw image bytes."""
     return hashlib.sha256(data).hexdigest()
 
 
 def load_seen() -> tuple[set[str], set[str]]:
-    """Load previously accepted URLs and hashes from the manifest and files."""
     seen_urls: set[str] = set()
     seen_hashes: set[str] = set()
 
@@ -94,18 +91,15 @@ def load_seen() -> tuple[set[str], set[str]]:
 
 
 def save_manifest(record: dict[str, Any]) -> None:
-    """Append a downloaded image record to the manifest."""
     with MANIFEST_PATH.open("a", encoding="utf-8") as manifest:
         manifest.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
 def get_existing_count(class_dir: Path) -> int:
-    """Return the number of JPEG images already present in a class folder."""
     return len(list(class_dir.glob("*.jpg")))
 
 
 def next_filename(class_dir: Path) -> Path:
-    """Return the first missing zero-padded filename from 0000 to 0999."""
     existing_indices = set()
     for path in class_dir.glob("*.jpg"):
         try:
@@ -117,16 +111,13 @@ def next_filename(class_dir: Path) -> Path:
         if index not in existing_indices:
             return class_dir / (str(index).zfill(4) + ".jpg")
 
-    raise RuntimeError(f"No free filename remains in {class_dir}")
+    raise RuntimeError(f"В папке {class_dir} не осталось свободных имён файлов")
 
 
 def extract_image_urls(response_text: str) -> list[str]:
-    """Extract original image URLs from current Yandex result HTML."""
     soup = BeautifulSoup(response_text, "html.parser")
     image_urls: list[str] = []
 
-    # Current Yandex pages keep search entities inside ImagesApp data-state.
-    # See also current open-source Yandex parser implementations.
     images_app = soup.find(
         attrs={"id": lambda value: value and value.startswith("ImagesApp-")}
     )
@@ -163,7 +154,6 @@ def extract_image_urls(response_text: str) -> list[str]:
         except (json.JSONDecodeError, TypeError, AttributeError):
             pass
 
-    # Compatibility fallback for the older data-bem format.
     for item in soup.select(".serp-item[data-bem]"):
         data_bem = item.get("data-bem")
         if not data_bem:
@@ -180,9 +170,7 @@ def extract_image_urls(response_text: str) -> list[str]:
 
 
 def create_driver() -> webdriver.Chrome:
-    """Create a Chrome WebDriver for a real browser-based Yandex search."""
     options = Options()
-    # Run headless by default; set HEADLESS=0 to see the browser window.
     if os.getenv("HEADLESS", "1") != "0":
         options.add_argument("--headless=new")
     options.add_argument("--disable-blink-features=AutomationControlled")
@@ -201,7 +189,6 @@ def search_images(
     query: str,
     page: int,
 ) -> list[str]:
-    """Open one Yandex Images page and return original image URLs."""
     url = (
         f"{BASE_URL}?text={quote(query)}&p={page}"
         "&nomisspell=1&noreask=1&isize=large&family=yes"
@@ -228,8 +215,8 @@ def search_images(
         page_text = driver.page_source.lower()
         if "showcaptcha" in driver.current_url.lower() or "captcha" in page_text:
             raise RuntimeError(
-                "Yandex requested CAPTCHA. Set HEADLESS=0 and complete it in Chrome, "
-                "then restart the script."
+                "Яндекс запросил CAPTCHA. Запустите скрипт с HEADLESS=0, "
+                "пройдите проверку в Chrome и перезапустите скрипт."
             )
 
     return image_urls
@@ -239,7 +226,6 @@ def download_bytes(
     session: requests.Session,
     image_url: str,
 ) -> bytes | None:
-    """Download an image with a few retries and basic content checks."""
     for attempt in range(1, DOWNLOAD_RETRIES + 1):
         try:
             download_headers = dict(HEADERS)
@@ -253,12 +239,12 @@ def download_bytes(
             response.raise_for_status()
 
             if not response.content:
-                raise ValueError("The response is empty")
+                raise ValueError("Пустой response.content")
 
             return response.content
         except (requests.RequestException, ValueError) as exc:
             if attempt == DOWNLOAD_RETRIES:
-                print(f"    download failed: {exc}")
+                print(f"Не удалось скачать изображение: {exc}")
                 return None
             time.sleep(attempt)
 
@@ -266,7 +252,6 @@ def download_bytes(
 
 
 def convert_to_jpeg(image_bytes: bytes) -> tuple[bytes, tuple[int, int]] | None:
-    """Validate an image and return JPEG bytes plus its dimensions."""
     try:
         with Image.open(io.BytesIO(image_bytes)) as image:
             image.verify()
@@ -306,16 +291,15 @@ def download_class(
     seen_urls: set[str],
     seen_hashes: set[str],
 ) -> None:
-    """Fill one class directory up to TARGET_IMAGES."""
     class_dir = DATASET_DIR / class_name
     class_dir.mkdir(parents=True, exist_ok=True)
 
     count = get_existing_count(class_dir)
     if count >= TARGET_IMAGES:
-        print(f"{class_name}: already has {count} images")
+        print(f"{class_name}: уже собрано {count} изображений")
         return
 
-    print(f"\nCollecting {class_name}: {count}/{TARGET_IMAGES}")
+    print(f"\nСбор изображений для класса {class_name}: {count}/{TARGET_IMAGES}")
 
     for query in queries:
         empty_pages_count = 0
@@ -328,15 +312,15 @@ def download_class(
             except RuntimeError:
                 raise
             except (requests.RequestException, WebDriverException) as exc:
-                print(f"[{class_name}] search failed: {query!r}, page {page}: {exc}")
+                print(f"[{class_name}] Ошибка поиска: запрос {query!r}, страница {page}: {exc}")
                 time.sleep(2)
                 continue
 
             if not image_urls:
-                print(f"[{class_name}] no results: {query!r}, page {page}")
+                print(f"[{class_name}] Нет результатов: запрос {query!r}, страница {page}")
                 empty_pages_count += 1
                 if empty_pages_count >= MAX_EMPTY_PAGES:
-                    print(f"[{class_name}] too many empty pages ({empty_pages_count}), breaking")
+                    print(f"[{class_name}] Слишком много пустых страниц ({empty_pages_count}), остановка")
                     break
                 continue
 
@@ -344,8 +328,8 @@ def download_class(
 
             new_urls = [url for url in image_urls if url not in seen_urls]
             print(
-                f"[{class_name}] query={query!r}, page={page}, "
-                f"candidates={len(new_urls)}"
+                f"[{class_name}] запрос={query!r}, страница={page}, "
+                f"количество кандитатов={len(new_urls)}"
             )
 
             for image_url in new_urls:
@@ -387,19 +371,18 @@ def download_class(
                 save_manifest(record)
                 seen_hashes.add(jpeg_hash)
                 count += 1
-                print(f"    saved {file_path.name} ({count}/{TARGET_IMAGES})")
+                print(f"Сохранено {file_path.name} ({count}/{TARGET_IMAGES})")
 
                 time.sleep(REQUEST_DELAY)
 
     if count < TARGET_IMAGES:
         raise RuntimeError(
-            f"Not enough valid images for {class_name}: "
-            f"{count}/{TARGET_IMAGES}. Run the script again later."
+            f"Недостаточно подходящих изображений для класса {class_name}: "
+            f"{count}/{TARGET_IMAGES}. Повторите запуск скрипта позже."
         )
 
 
 def main() -> None:
-    """Create both datasets."""
     DATASET_DIR.mkdir(parents=True, exist_ok=True)
     seen_urls, seen_hashes = load_seen()
 
@@ -421,10 +404,9 @@ def main() -> None:
         if driver is not None:
             driver.quit()
 
-    print("\nDataset creation finished.")
     for class_name in SEARCH_QUERIES:
         count = get_existing_count(DATASET_DIR / class_name)
-        print(f"{class_name}: {count} images")
+        print(f"{class_name}: {count} изображений")
 
 
 if __name__ == "__main__":

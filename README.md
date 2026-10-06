@@ -14,7 +14,7 @@
 ```text
 lab_yandex_images/
 ├── main.py
-├── requirements.txt
+├── requirements.txt        # pip freeze > requirements.txt
 ├── README.md
 ├── notebook.ipynb
 ├── manifest.jsonl          # создаётся скриптом
